@@ -506,282 +506,163 @@ with tab_tesco:
 
 # =====================================================================
 
+# =====================================================================
+# 🟡 [TAB 2] 이마트 (이마트 / 트레이더스 / 노브랜드) 로직 - 수정본
+# =====================================================================
 with tab_emart:
-
     st.subheader("🟡 이마트 (이마트/TRD/노브랜드) 발주 데이터 업로드")
-
     
-
     TEMPLATE_FILES = [
-
         "NEW 이마트 서식파일_20260420납품.xlsx",
-
         "NEW 이마트 트레이더스(한익스점포확인)_260327납품(평택9여주0대구4).xlsx",
-
         "NEW 노브랜드_20260409납품.xlsx"
-
     ]
 
-
-
     @st.cache_data
-
     def load_emart_master():
-
         appended = []
-
         for fn in TEMPLATE_FILES:
-
             if os.path.exists(fn):
-
                 xls = pd.ExcelFile(fn)
-
                 prod_sheets = [s for s in xls.sheet_names if '제품명' in s]
-
                 if prod_sheets:
-
                     d = pd.read_excel(xls, sheet_name=prod_sheets[0])
-
                     d.columns = d.columns.str.strip()
-
                     appended.append(d)
-
         if not appended: return None
-
         md = pd.concat(appended, ignore_index=True)
-
         if '바코드' in md.columns:
-
             md['바코드'] = md['바코드'].astype(str).str.replace('.0', '', regex=False).str.strip()
-
             md = md.drop_duplicates(subset=['바코드'], keep='first')
-
         return md
 
-
-
     prod_df = load_emart_master()
-
     
-
     if prod_df is None or prod_df.empty:
-
         st.warning("⚠️ 서버에 이마트 마스터 파일(깃허브 서식파일 3종)이 없습니다. 관리자에게 문의하세요.")
-
     else:
-
         file_emart = st.file_uploader("📂 드래그 앤 드롭으로 파일을 업로드하세요 (xlsx/csv)", type=['xlsx', 'xls', 'csv'], key="emart")
-
         
-
         if file_emart:
-
             try:
-
                 with st.spinner("🔄 이마트 데이터 통합 변환 중입니다..."):
-
                     if file_emart.name.endswith('.csv'):
-
-                        # CSV 파일 읽을 때 인코딩 처리 (한글 깨짐 및 에러 방지)
-
                         try:
-
                             raw_df = pd.read_csv(file_emart, encoding='utf-8-sig')
-
                         except:
-
                             file_emart.seek(0)
-
                             raw_df = pd.read_csv(file_emart, encoding='cp949')
-
                     else:
-
                         xls_raw = pd.ExcelFile(file_emart)
-
                         t_sheet = xls_raw.sheet_names[0]
-
                         for s in xls_raw.sheet_names:
-
                             temp = pd.read_excel(xls_raw, sheet_name=s, nrows=3)
-
                             if '점포코드' in temp.columns:
-
                                 t_sheet = s
-
                                 break
-
                         raw_df = pd.read_excel(xls_raw, sheet_name=t_sheet)
 
-
-
                     raw_df = raw_df.dropna(subset=['점포코드'])
-
                     raw_df['점포코드'] = pd.to_numeric(raw_df['점포코드'], errors='coerce').fillna(0).astype(int)
-
                     raw_df['센터코드'] = raw_df.get('센터코드', '').astype(str).str.replace('.0', '', regex=False).str.strip()
-
                     raw_df['수량'] = pd.to_numeric(raw_df.get('수량', 0), errors='coerce').fillna(0)
-
                     
-
-                    # ✨ 센터입하일자(또는 센터입하일)를 먼저 찾고 없으면 점입점일자를 가져옴
-
                     date_col = '센터입하일자' if '센터입하일자' in raw_df.columns else ('센터입하일' if '센터입하일' in raw_df.columns else '점입점일자')
-
                     raw_df['배송일자'] = raw_df.get(date_col, '').astype(str).str.replace('.0', '', regex=False).str.replace('-', '', regex=False).str.strip()
-
                     
-
                     raw_df = raw_df[raw_df['수량'] > 0].copy() 
 
-
-
+                    # 1. 센터코드 -> 배송코드 매핑 딕셔너리
                     emart_map_dict = {
-
                         'E-mart': {'9110': '81010902', '9120': '81010905', '9100': '81010903'},
-
                         'E-mart(TRD)': {'9150': '81033036', '9102': '89011174', '9120': '81011012'},
-
                         'E-mart(노브랜드)': {'9102': '89011175', '9130': '81010904', '9120': '81010968', '9110': '81010969'}
-
                     }
-
-
 
                     def process_emart(row):
-
                         code = row['점포코드']
-
-                        center = str(row['센터코드']) # 딕셔너리 조회를 위해 문자열 처리
-
+                        center = str(row['센터코드'])
                         if (1000 <= code <= 1999) or code >= 9000: cust = 'E-mart'
-
                         elif 2000 <= code <= 2999: cust = 'E-mart(TRD)'
-
                         elif 3000 <= code <= 3999: cust = 'E-mart(노브랜드)'
-
                         else: cust = 'Unknown'
-
-                        return pd.Series([cust, emart_map_dict.get(cust, {}).get(center, center)])
-
-
+                        
+                        # 매핑된 코드가 없을 경우 원본 센터코드를 반환하여 추적이 가능하게 함
+                        mapped_code = emart_map_dict.get(cust, {}).get(center, center)
+                        return pd.Series([cust, mapped_code])
 
                     raw_df[['Customer', '배송코드']] = raw_df.apply(process_emart, axis=1)
-
                     raw_df['상품코드'] = raw_df['상품코드'].astype(str).str.replace('.0', '', regex=False).str.strip()
-
                     name_col = '상품명(기획)' if '상품명(기획)' in prod_df.columns else '상품명'
-
                     
-
                     merged_df = pd.merge(raw_df, prod_df[['바코드', '상품코드(기획)', name_col]], left_on='상품코드', right_on='바코드', how='left')
-
                     merged_df['최종_상품코드'] = merged_df['상품코드(기획)'].fillna(merged_df['상품코드'])
-
                     merged_df['최종_상품명'] = merged_df[name_col].fillna(merged_df.get('상품명', ''))
 
-
-
+                    # 2. ⭐ 핵심 수정 부분: 누락된 TRD 및 센터 명칭 대거 보강
                     delivery_name_map = {
-
-                        '81010901': '이마트 백암물류센터', '81010902': '이마트 시화물류센터', '81010903': '이마트 대구물류센터',
-
-                        '81010905': '이마트 여주물류센터', '81010904': '이마트 노브랜드 여주2물류센터', '81010968': '이마트 노브랜드 여주물류센터',
-
-                        '81010969': '이마트 노브랜드 시화물류센터', '89011175': '이마트 노브랜드 대구물류(신규)',
-
-                        '81010906': '이마트 광주물류센터', '81033036': '이마트 트레이더스 평택물류'
-
+                        # 일반 이마트
+                        '81010901': '이마트 백암물류센터', 
+                        '81010902': '이마트 시화물류센터', 
+                        '81010903': '이마트 대구물류센터',
+                        '81010905': '이마트 여주물류센터', 
+                        '81010906': '이마트 광주물류센터',
+                        
+                        # 노브랜드
+                        '81010904': '이마트 노브랜드 여주2물류센터', 
+                        '81010968': '이마트 노브랜드 여주물류센터',
+                        '81010969': '이마트 노브랜드 시화물류센터', 
+                        '89011175': '이마트 노브랜드 대구물류(신규)',
+                        
+                        # 트레이더스 (TRD) - 질문하신 부분 수정
+                        '81033036': '이마트 트레이더스 평택물류',
+                        '89011174': '이마트 트레이더스 여주물류', 
+                        '81011012': '이마트 트레이더스 대구물류'
                     }
 
-
-
                     merged_df['발주코드'] = '81010000'
-
                     merged_df['날짜'] = today_str
-
-                    merged_df['배송처'] = merged_df['배송코드'].astype(str).map(delivery_name_map).fillna('')
-
                     
-
+                    # 매핑 테이블에 이름이 없으면 배송코드를 그대로 노출하여 디버깅 용이하게 변경
+                    merged_df['배송처'] = merged_df['배송코드'].astype(str).map(delivery_name_map).fillna(merged_df['배송코드'])
+                    
                     subset_df = merged_df[[
-
                         '날짜', '배송일자', '발주코드', 'Customer', '배송코드', '배송처', 
-
                         '최종_상품코드', '최종_상품명', '수량', '발주원가', '발주금액'
-
                     ]].copy()
-
                     
-
                     subset_df.rename(columns={
-
                         '날짜': '수주날짜', '배송일자': '납품일자', 'Customer': '발주처', 
-
                         '최종_상품코드': 'ME코드', '최종_상품명': '상품명', '발주원가': '단가', '발주금액': 'Total Amount'
-
                     }, inplace=True)
 
-
-
                     group_cols = ['수주날짜', '납품일자', '발주코드', '발주처', '배송코드', '배송처', 'ME코드', '상품명', '단가']
-
                     grouped_df = subset_df.groupby(group_cols, dropna=False, as_index=False)[['수량', 'Total Amount']].sum()
-
                     
-
-                    grouped_df['구분'] = "0" # 구분 열 0 추가
-
+                    grouped_df['구분'] = "0" 
                     df_final = grouped_df[FINAL_COLUMNS].copy()
-
                     
-
-                    # 발주처 기준으로 정렬 (이마트, TRD, 노브랜드 그룹화)
-
                     df_final = df_final.sort_values(by=['발주처', '배송처', '상품명']).reset_index(drop=True)
-
                     
-
                     # --- UI 요약 섹션 ---
-
                     st.success("✨ 이마트 데이터 정제 및 병합이 완료되었습니다!")
-
                     c1, c2, c3 = st.columns(3)
-
                     c1.metric("📦 총 처리 건수", f"{len(df_final):,} 건")
-
                     c2.metric("🔢 총 납품 수량", f"{df_final['수량'].sum():,.0f} 개")
-
                     c3.metric("💰 총 납품 금액", f"{df_final['Total Amount'].sum():,.0f} 원")
 
-
-
                     with st.expander("👀 변환된 상세 데이터 미리보기 (약 20~30줄 표시)", expanded=True):
-
-                        # 표 높이를 1000px로 늘려서 더 많은 행이 한눈에 들어오게 처리!
-
                         st.dataframe(df_final, use_container_width=True, height=1000)
-
                         
-
                     st.download_button(
-
                         label="📥 통일 양식 다운로드 (이마트)", 
-
                         data=to_excel_unified(df_final), 
-
                         file_name=f"수주통합본_Emart_{today_str}.xlsx", 
-
                         mime="application/vnd.ms-excel", key="dl_emart",
-
                         type="primary"
-
                     )
-
             except Exception as e:
-
                 st.error(f"오류 발생: {e}")
-
 
 
 # =====================================================================
