@@ -167,20 +167,37 @@ def run_tesco_logic(uploaded_file):
     return df[FINAL_COLUMNS]
 
 # ==========================================
-# 🟡 [로직 2] 이마트 처리 함수
+# 🟡 [로직 2] 이마트 처리 함수 (헤더 자동 찾기 추가)
 # ==========================================
 def run_emart_logic(uploaded_file, prod_df):
+    # ⭐ 파일을 단순히 읽지 않고 첫 줄부터 탐색하여 '점포코드'가 있는 줄을 진짜 헤더로 만듭니다.
     if uploaded_file.name.endswith('.csv'):
-        try: raw_df = pd.read_csv(uploaded_file, encoding='utf-8-sig')
-        except: raw_df = pd.read_csv(uploaded_file, encoding='cp949')
+        try: raw_df = pd.read_csv(uploaded_file, encoding='utf-8-sig', header=None)
+        except: 
+            uploaded_file.seek(0)
+            raw_df = pd.read_csv(uploaded_file, encoding='cp949', header=None)
     else:
-        raw_df = pd.read_excel(uploaded_file)
+        raw_df = pd.read_excel(uploaded_file, header=None)
 
-    if '점포코드' not in raw_df.columns: return pd.DataFrame()
+    header_idx = -1
+    for i, row in raw_df.iterrows():
+        row_strs = [str(x).strip().replace('\n', '') for x in row.values]
+        if '점포코드' in row_strs:
+            header_idx = i
+            raw_df.columns = row_strs
+            break
+            
+    if header_idx == -1: 
+        return pd.DataFrame() # 점포코드를 끝내 못 찾으면 빈 프레임 반환
+        
+    raw_df = raw_df.iloc[header_idx+1:].copy()
 
     raw_df = raw_df.dropna(subset=['점포코드'])
     raw_df['점포코드'] = pd.to_numeric(raw_df['점포코드'], errors='coerce').fillna(0).astype(int)
-    raw_df['센터코드'] = raw_df.get('센터코드', '').astype(str).str.replace('.0', '', regex=False).str.strip()
+    
+    if '센터코드' not in raw_df.columns: raw_df['센터코드'] = ''
+    raw_df['센터코드'] = raw_df['센터코드'].astype(str).str.replace('.0', '', regex=False).str.strip()
+    
     raw_df['수량'] = pd.to_numeric(raw_df.get('수량', 0), errors='coerce').fillna(0)
     
     date_col = next((c for c in ['센터입하일자', '센터입하일', '점입점일자'] if c in raw_df.columns), None)
@@ -222,7 +239,7 @@ def run_emart_logic(uploaded_file, prod_df):
     return merged[FINAL_COLUMNS]
 
 # ==========================================
-# 🟢 [로직 3] 롯데마트 처리 함수 (매핑 로직 강화)
+# 🟢 [로직 3] 롯데마트 처리 함수
 # ==========================================
 def run_lotte_logic(uploaded_file):
     CENTER_MAP = {'오산센터': '81030907', '김해센터': '81030908'}
@@ -252,21 +269,19 @@ def run_lotte_logic(uploaded_file):
             curr_date = re.sub(r'[^0-9]', '', r[7])
             continue
             
-        # ⭐ 바코드 기반 데이터 파싱 및 사내 ME코드 매핑
         if len(r) > 1 and r[1].startswith('880'):
             ipsu = int(extract_num(r[5])) or 1
             box_qty = int(extract_num(r[6]))
             qty = box_qty * ipsu
             price = extract_num(r[7])
             
-            # 바코드 -> ME코드 변환
             barcode_str = r[1].replace('.0', '')
             me_code = barcode_str
             if barcode_str.isdigit() and int(barcode_str) in FULL_PRODUCT_MAP:
                 me_code = FULL_PRODUCT_MAP[int(barcode_str)]
             
             parsed_list.append({
-                '발주코드': "81030000", # 롯데마트 표준코드 (필요시 curr_doc_no로 변경 가능)
+                '발주코드': "81030000",
                 '배송처': curr_center, 
                 '납품일자': curr_date,
                 'ME코드': me_code, 
@@ -289,10 +304,8 @@ def run_lotte_logic(uploaded_file):
 # ==========================================
 # 🚀 메인 대시보드
 # ==========================================
-st.title("📦 마트 통합 수주 자동 변환기 (v2.1)")
-st.markdown("> **롯데마트** 매핑 오류 수정 및 **발주처별 구분** 강화 버전입니다.")
+st.title("📦 마트 통합 수주 자동 변환기 (v3.0 - 철벽 방어 버전)")
 
-# [사이드바 - 마스터 로드 생략... 기존과 동일]
 with st.sidebar:
     st.header("⚙️ 시스템 설정")
     @st.cache_data
@@ -319,33 +332,43 @@ if uploaded_files:
     all_results = []
     for f in uploaded_files:
         try:
+            # ⭐ 1. 파일 안쪽을 더 깊숙이 확인합니다.
             if f.name.endswith('.csv'):
-                sample_content = f.getvalue()[:2000].decode('utf-8-sig', errors='ignore')
+                sample_content = f.getvalue()[:10000].decode('utf-8-sig', errors='ignore')
+                if not sample_content:
+                    sample_content = f.getvalue()[:10000].decode('cp949', errors='ignore')
             else:
-                sample_df = pd.read_excel(f, nrows=5)
-                sample_content = str(sample_df.columns.tolist()) + str(sample_df.values.tolist())
+                df_sample = pd.read_excel(f, nrows=30, header=None).fillna('').astype(str)
+                sample_content = df_sample.to_string()
+            
             f.seek(0)
             
-            if 'ORDERS' in sample_content:
+            # ⭐ 2. 모르면 무조건 테스코로 넘기던 로직 삭제! 확실한 키워드로만 깐깐하게 분리
+            if 'ORDERS' in sample_content or '롯데마트' in sample_content:
                 df_res = run_lotte_logic(f)
                 mart_name = "롯데마트"
             elif '점포코드' in sample_content or '센터입하' in sample_content:
                 df_res = run_emart_logic(f, emart_master) if emart_master is not None else pd.DataFrame()
                 mart_name = "이마트"
-            else:
+            elif '입고타입' in sample_content or '낱개수량' in sample_content or '낱개당 단가' in sample_content:
                 df_res = run_tesco_logic(f)
                 mart_name = "Tesco"
+            else:
+                st.error(f"❌ {f.name} 파일은 등록된 마트 서식(롯데, 이마트, 테스코)인지 확인할 수 없습니다. 파일 양식을 확인해주세요.")
+                continue
             
             if not df_res.empty:
                 all_results.append(df_res)
-                st.write(f"✔️ **{f.name}** -> {mart_name} 인식 완료 ({len(df_res)}건)")
+                st.success(f"✔️ **{f.name}** -> {mart_name} 인식 완벽 성공! ({len(df_res)}건)")
+            else:
+                st.warning(f"⚠️ **{f.name}** -> {mart_name} 양식으로 인식되었으나 변환된 데이터가 없습니다.")
+
         except Exception as e:
             st.error(f"❌ {f.name} 오류: {e}")
 
     if all_results:
         combined_df = pd.concat(all_results, ignore_index=True).fillna("")
         
-        # ⭐ 병합 시 발주처를 포함하여 마트별로 데이터가 섞이지 않도록 방어!
         group_cols = ['구분', '수주날짜', '납품일자', '발주코드', '발주처', '배송코드', '배송처', 'ME코드', '상품명', '단가']
         final_df = combined_df.groupby(group_cols, dropna=False, as_index=False).agg({'수량': 'sum', 'Total Amount': 'sum'})
         final_df = final_df[FINAL_COLUMNS]
