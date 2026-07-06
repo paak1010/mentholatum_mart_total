@@ -9,13 +9,11 @@ from datetime import datetime, date
 
 # ==========================================
 # ⚙️ 페이지 및 기본 설정 (Wide Layout & 탭 아이콘)
-# ==========================================
 st.set_page_config(
     page_title="멘소래담 통합 수주업로드", 
-    page_icon="https://raw.githubusercontent.com/paak1010/mentholatum_mart_total/main/logo2.png", 
+    page_icon="logo2.png", # 💡 긴 URL 대신 파일명만 직접 입력!
     layout="wide"
 )
-
 # ==========================================
 # 🎨 B2B SaaS 스타일 커스텀 CSS (스트림릿 느낌 지우기)
 # ==========================================
