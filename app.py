@@ -6,14 +6,25 @@ import os
 import re
 import csv
 from datetime import datetime, date
+from PIL import Image  # 💡 PIL 라이브러리 추가
 
 # ==========================================
 # ⚙️ 페이지 및 기본 설정 (Wide Layout & 탭 아이콘)
+# ==========================================
+# 💡 이미지를 변수에 먼저 확실하게 담아줍니다.
+try:
+    img = Image.open("logo2.png")
+except FileNotFoundError:
+    # 혹시 로컬에서 테스트할 때 파일이 안 읽힐 경우를 대비한 예외 처리
+    img = "🌿"
+
 st.set_page_config(
     page_title="멘소래담 통합 수주업로드", 
-    page_icon="logo2.png", # 💡 긴 URL 대신 파일명만 직접 입력!
+    page_icon=img,  # 💡 문자열 대신 이미지 객체 자체를 삽입
     layout="wide"
 )
+
+# ... (이하 기존 코드 동일) ...
 # ==========================================
 # 🎨 B2B SaaS 스타일 커스텀 CSS (스트림릿 느낌 지우기)
 # ==========================================
