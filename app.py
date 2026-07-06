@@ -166,7 +166,7 @@ def to_excel_unified(df, sheet_name="통합_수주업로드"):
         center_format = workbook.add_format({'align': 'center'})
         header_format = workbook.add_format({'bold': True, 'bg_color': '#1e293b', 'font_color': 'white', 'border': 1, 'align': 'center'})
         
-        # 💡 에러 수정 완료 부분
+        # 💡 에러 수정 완료 부분 (괄호 제대로 닫힘)
         for col_num, value in enumerate(df.columns.values):
             worksheet.write(0, col_num, value, header_format)
             
