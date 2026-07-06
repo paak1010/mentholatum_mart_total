@@ -22,7 +22,7 @@ from datetime import datetime, date
 
 # ==========================================
 
-st.set_page_config(page_title="멘소래담 통합 수주업로드", page_icon="🏢", layout="wide")
+st.set_page_config(page_title="멘소래담 통합 수주업로드", page_icon="https://raw.githubusercontent.com/paak1010/mentholatum_mart_total/main/logo2.png"", layout="wide")
 
 
 
