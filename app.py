@@ -496,3 +496,137 @@ with tab_emart:
                     )
             except Exception as e:
                 st.error(f"오류 발생: {e}")
+
+# =====================================================================
+# 🟢 [TAB 3] 롯데마트 로직
+# =====================================================================
+with tab_lotte:
+    st.markdown("### 롯데마트 EDI 발주 데이터 업로드")
+    
+    LOTTE_TEMPLATE = '2022 롯데마트 서식파일 260417납품.xlsx'
+    CENTER_CODE_MAP = {'오산센터': '81030907', '김해센터': '81030908'}
+
+    def clean_lotte_code(val):
+        s = str(val).strip()
+        if s.endswith('.0'): s = s[:-2]
+        return s
+    
+    def clean_lotte_number(val):
+        s = str(val).replace(',', '').strip()
+        if s.endswith('.0'): s = s[:-2]
+        s = re.sub(r'[^0-9]', '', s)
+        return int(s) if s else 0
+
+    file_lotte = st.file_uploader("📂 드래그 앤 드롭으로 파일을 업로드하세요 (xls/csv)", type=['xlsx', 'csv'], key="lotte")
+    
+    if file_lotte:
+        try:
+            with st.spinner("🔄 롯데마트 데이터 통합 변환 중입니다..."):
+                if file_lotte.name.endswith('.csv'): df_edi = pd.read_csv(file_lotte, header=None)
+                else: df_edi = pd.read_excel(file_lotte, header=None)
+                df_edi = df_edi.dropna(how='all')
+                
+                parsed_list, curr_center, curr_doc_no, curr_delivery_date = [], "", "", ""
+                
+                for i, row in df_edi.iterrows():
+                    r = [str(x).strip() for x in row.tolist()]
+                    if r[0] == 'ORDERS':
+                        curr_doc_no = clean_lotte_code(r[1])
+                        name = str(r[5]).strip()
+                        curr_center = re.sub(r'상온센타|상온센터|센타', '센터', name).replace('센터센터', '센터')
+                        
+                        curr_delivery_date = re.sub(r'[^0-9]', '', str(r[7]) if len(r) > 7 else "") 
+                        continue
+                    
+                    barcode = clean_lotte_code(r[1])
+                    if barcode.startswith('880'):
+                        qty = clean_lotte_number(r[6])
+                        ipsu = clean_lotte_number(r[5]) or 1
+                        u_qty = qty * ipsu
+                        if u_qty > 0:
+                            edi_price = clean_lotte_number(r[7] if len(r) > 7 else 0)
+                            parsed_list.append({
+                                '발주번호': curr_doc_no, '센터': curr_center, '납품일자': curr_delivery_date,
+                                '바코드': barcode, 'EDI_품명': r[2], 'UNIT수량': u_qty, 'EDI_단가': edi_price
+                            })
+                            
+                if not parsed_list:
+                    st.warning("⚠️ 유효한 롯데마트 발주 내역이 없습니다.")
+                else:
+                    df_parsed = pd.DataFrame(parsed_list)
+                    
+                    if os.path.exists(LOTTE_TEMPLATE):
+                        df_map_sheet = pd.read_excel(LOTTE_TEMPLATE, sheet_name=0)
+                        df_price_sheet = pd.read_excel(LOTTE_TEMPLATE, sheet_name=1)
+                        
+                        m_dict = df_map_sheet[[df_map_sheet.columns[3], df_map_sheet.columns[13]]].copy()
+                        m_dict.columns = ['바코드', 'ME코드']
+                        m_dict['바코드'] = m_dict['바코드'].apply(clean_lotte_code)
+                        m_dict = m_dict.drop_duplicates(subset=['바코드'])
+
+                        c_me = [c for c in df_price_sheet.columns if '상품코드' in str(c) or 'ME' in str(c).upper()][0]
+                        c_name = [c for c in df_price_sheet.columns if '품명' in str(c) or '상품명' in str(c)][0]
+                        c_price = [c for c in df_price_sheet.columns if '단가' in str(c)][0]
+                        
+                        p_dict = df_price_sheet[[c_me, c_name, c_price]].dropna(subset=[c_me]).copy()
+                        p_dict.columns = ['ME코드', '마스터_품명', '마스터_단가']
+                        p_dict['ME코드'] = p_dict['ME코드'].apply(clean_lotte_code)
+                        p_dict['마스터_단가'] = p_dict['마스터_단가'].apply(clean_lotte_number)
+                        p_dict = p_dict.drop_duplicates(subset=['ME코드'])
+
+                        df_final = pd.merge(df_parsed, m_dict, on='바코드', how='left')
+                        df_final['ME코드'] = df_final['ME코드'].fillna(df_final['바코드'])
+                        df_final = pd.merge(df_final, p_dict, on='ME코드', how='left')
+                        df_final['품명'] = df_final['마스터_품명'].fillna(df_final['EDI_품명'])
+                        df_final['UNIT단가'] = df_final['마스터_단가'].fillna(df_final['EDI_단가'])
+                    else:
+                        st.warning("⚠️ 롯데마트 서식파일을 찾을 수 없어 원본 EDI 단가/품명으로 산출합니다.")
+                        df_final = df_parsed.copy()
+                        df_final['ME코드'] = df_final['바코드']
+                        df_final['품명'] = df_final['EDI_품명']
+                        df_final['UNIT단가'] = df_final['EDI_단가']
+
+                    # 롯데마트 특정 바코드 수동 맵핑
+                    LOTTE_MANUAL_MAP = {'8809020342075': 'ME90621GKK', '8809020342105' : 'ME90621LL5', '8809020345229' : 'ME00421301', '8809020342037' : 'ME90621GMM',
+                                       '8809020342044':'ME90621LLL', '8809020342464':'ME00621AB8'}
+                    df_final['ME코드'] = df_final['바코드'].astype(str).map(LOTTE_MANUAL_MAP).fillna(df_final['ME코드'])
+
+                    # 발주번호, 센터 등 원본을 묶어 수량 합산
+                    df_grouped = df_final.groupby(['발주번호', '센터', '납품일자', 'ME코드'], as_index=False).agg({'품명': 'first', 'UNIT단가': 'first', 'UNIT수량': 'sum'})
+                    
+                    # 배송코드 설정
+                    df_grouped['배송코드'] = df_grouped['센터'].map(CENTER_CODE_MAP).fillna(df_grouped['발주번호'])
+                    
+                    # 발주코드 = 배송코드
+                    df_grouped['발주코드'] = df_grouped['배송코드']
+                    
+                    df_grouped['Total Amount'] = df_grouped['UNIT수량'] * df_grouped['UNIT단가']
+                    df_grouped['구분'] = "0" 
+                    df_grouped['수주날짜'] = today_str
+                    
+                    df_grouped.rename(columns={
+                        '센터': '배송처', '품명': '상품명', 'UNIT수량': '수량', 'UNIT단가': '단가'
+                    }, inplace=True)
+
+                    # 배송처 이름으로 발주처 컬럼 통일 적용
+                    df_grouped['발주처'] = df_grouped['배송처']
+
+                    df_final = df_grouped[FINAL_COLUMNS].copy()
+                    
+                    st.success("✨ 롯데마트 데이터 정제 및 병합이 완료되었습니다!")
+                    c1, c2, c3 = st.columns(3)
+                    c1.metric("📦 총 처리 건수", f"{len(df_final):,} 건")
+                    c2.metric("🔢 총 납품 수량", f"{df_final['수량'].sum():,.0f} 개")
+                    c3.metric("💰 총 납품 금액", f"{df_final['Total Amount'].sum():,.0f} 원")
+
+                    with st.expander("👀 변환된 상세 데이터 미리보기 (약 20~30줄 표시)", expanded=True):
+                        st.dataframe(df_final, use_container_width=True, height=500)
+                        
+                    st.download_button(
+                        label="📥 통일 양식 다운로드 (롯데마트)", 
+                        data=to_excel_unified(df_final), 
+                        file_name=f"수주통합본_Lotte_{today_str}.xlsx", 
+                        mime="application/vnd.ms-excel", key="dl_lotte",
+                    )
+        except Exception as e:
+            st.error(f"오류 발생: {e}")
