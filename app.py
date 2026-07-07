@@ -33,20 +33,23 @@ st.markdown("""
         font-family: 'Pretendard', sans-serif !important;
     }
 
-    /* 스트림릿 기본 요소 숨기기 (헤더는 남겨서 사이드바 토글 버튼 유지) */
+    /* 💡 스트림릿 기본 설정 버튼(햄버거 메뉴), Deploy 버튼, 푸터 완벽 숨기기 */
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
     .stDeployButton {display: none;}
     
-    /* 전체 배경색 지정 (아주 연한 회색으로 모던한 느낌) */
+    /* 💡 전체 배경색과 사이드바 배경색을 완벽한 흰색(#ffffff)으로 통일 */
     .stApp {
-        background-color: #f8fafc;
+        background-color: #ffffff;
+    }
+    [data-testid="stHeader"] {
+        background-color: #ffffff;
     }
     
-    /* 사이드바 배경색 및 경계선 튜닝 */
+    /* 사이드바 배경색 흰색 통일 및 아주 연한 경계선만 남김 */
     [data-testid="stSidebar"] {
         background-color: #ffffff;
-        border-right: 1px solid #e2e8f0;
+        border-right: 1px solid #f1f5f9;
     }
     
     /* 탭 디자인 변경 (하단 밑줄 스타일로 자연스럽게) */
@@ -117,7 +120,7 @@ st.markdown("""
     }
     [data-testid="stFileUploadDropzone"]:hover {
         border-color: #3b82f6;
-        background-color: #f0f9ff;
+        background-color: #f8fafc;
     }
 </style>
 """, unsafe_allow_html=True)
