@@ -33,16 +33,20 @@ st.markdown("""
         font-family: 'Pretendard', sans-serif !important;
     }
 
-    /* 💡 스트림릿 기본 설정 버튼(햄버거 메뉴), Deploy 버튼, 푸터 완벽 숨기기 */
-    #MainMenu {visibility: hidden;}
-    footer {visibility: hidden;}
-    .stDeployButton {display: none;}
+    /* 💡 핵심 수정: 우측 상단의 Share, Star, GitHub 등 클라우드 툴바 완벽 숨기기 */
+    [data-testid="stHeaderActionElements"] {display: none !important;}
+    [data-testid="stToolbar"] {display: none !important;}
+    #MainMenu {visibility: hidden !important;}
+    footer {visibility: hidden !important;}
+    .stDeployButton {display: none !important;}
     
-    /* 💡 전체 배경색과 사이드바 배경색을 완벽한 흰색(#ffffff)으로 통일 */
-    .stApp {
-        background-color: #ffffff;
-    }
+    /* 💡 헤더 배경은 투명하게 해서 좌측의 사이드바 여는 버튼( > )은 보이게 유지 */
     [data-testid="stHeader"] {
+        background-color: transparent !important;
+    }
+    
+    /* 전체 배경색과 사이드바 배경색을 완벽한 흰색(#ffffff)으로 통일 */
+    .stApp {
         background-color: #ffffff;
     }
     
@@ -124,7 +128,6 @@ st.markdown("""
     }
 </style>
 """, unsafe_allow_html=True)
-
 # 모든 날짜 형식을 하이픈 없이 YYYYMMDD로 통일
 today_str = datetime.today().strftime("%Y%m%d")
 
