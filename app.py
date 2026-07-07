@@ -470,3 +470,29 @@ with tab_emart:
                         '날짜': '수주날짜', '배송일자': '납품일자', 'Customer': '발주처', 
                         '최종_상품코드': 'ME코드', '최종_상품명': '상품명', '발주원가': '단가', '발주금액': 'Total Amount'
                     }, inplace=True)
+
+                    group_cols = ['수주날짜', '납품일자', '발주코드', '발주처', '배송코드', '배송처', 'ME코드', '상품명', '단가']
+                    grouped_df = subset_df.groupby(group_cols, dropna=False, as_index=False)[['수량', 'Total Amount']].sum()
+                    
+                    grouped_df['구분'] = "0" 
+                    df_final = grouped_df[FINAL_COLUMNS].copy()
+                    
+                    df_final = df_final.sort_values(by=['발주처', '배송처', '상품명']).reset_index(drop=True)
+                    
+                    st.success("✨ 이마트 데이터 정제 및 병합이 완료되었습니다!")
+                    c1, c2, c3 = st.columns(3)
+                    c1.metric("📦 총 처리 건수", f"{len(df_final):,} 건")
+                    c2.metric("🔢 총 납품 수량", f"{df_final['수량'].sum():,.0f} 개")
+                    c3.metric("💰 총 납품 금액", f"{df_final['Total Amount'].sum():,.0f} 원")
+
+                    with st.expander("👀 변환된 상세 데이터 미리보기 (약 20~30줄 표시)", expanded=True):
+                        st.dataframe(df_final, use_container_width=True, height=500)
+                        
+                    st.download_button(
+                        label="📥 통일 양식 다운로드 (이마트)", 
+                        data=to_excel_unified(df_final), 
+                        file_name=f"수주통합본_Emart_{today_str}.xlsx", 
+                        mime="application/vnd.ms-excel", key="dl_emart",
+                    )
+            except Exception as e:
+                st.error(f"오류 발생: {e}")
