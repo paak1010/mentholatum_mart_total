@@ -466,7 +466,7 @@ with tab_emart:
                         '최종_상품코드', '최종_상품명', '수량', '발주원가', '발주금액'
                     ]].copy()
                     
-              subset_df.rename(columns={
+                    subset_df.rename(columns={
                         '날짜': '수주날짜', '배송일자': '납품일자', 'Customer': '발주처', 
                         '최종_상품코드': 'ME코드', '최종_상품명': '상품명', '발주원가': '단가', '발주금액': 'Total Amount'
                     }, inplace=True)
